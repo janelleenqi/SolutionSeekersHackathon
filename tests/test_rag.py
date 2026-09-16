@@ -49,6 +49,16 @@ class FakeChatClient:
         return self.response
 
 
+class SequenceChatClient(FakeChatClient):
+    def __init__(self, responses):
+        super().__init__("")
+        self.responses = iter(responses)
+
+    def complete(self, system_prompt, user_prompt):
+        self.calls.append((system_prompt, user_prompt))
+        return next(self.responses)
+
+
 class RAGTests(unittest.TestCase):
     def test_grounded_answer_maps_model_labels_to_real_sources(self):
         client = FakeChatClient("The product is high risk [S2] and requires risk matching [S1].")
@@ -76,6 +86,19 @@ class RAGTests(unittest.TestCase):
                 result = RAGAssistant(FakeRetriever(), FakeChatClient(response)).answer("Question")
                 self.assertTrue(result.abstained)
                 self.assertEqual(result.reason, reason)
+
+    def test_uncited_answer_is_repaired_once(self):
+        client = SequenceChatClient(
+            [
+                "The product is high risk.",
+                "The product is high risk [S2].",
+            ]
+        )
+        result = RAGAssistant(FakeRetriever(), client).answer("Is this high risk?")
+        self.assertFalse(result.abstained)
+        self.assertEqual(result.answer, "The product is high risk [S2].")
+        self.assertEqual(len(client.calls), 2)
+        self.assertIn("failed citation validation", client.calls[1][1])
 
     def test_model_can_explicitly_abstain(self):
         result = RAGAssistant(

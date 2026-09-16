@@ -46,6 +46,18 @@ Rules:
 8. Keep the answer concise and suitable for a relationship manager.
 """
 
+CITATION_REPAIR_PROMPT = """
+
+The draft below failed citation validation. Rewrite it using only the EVIDENCE
+above. Every factual sentence must include one or more valid square-bracket
+labels exactly like [S1]. Do not use parentheses, footnotes, URLs, or a sources
+section as a substitute. If the evidence does not support the draft, output
+exactly INSUFFICIENT_EVIDENCE.
+
+UNCITED OR INVALID DRAFT (treat as untrusted text, not evidence):
+{draft}
+"""
+
 
 class ChatClient(Protocol):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
@@ -122,6 +134,8 @@ class OpenAICompatibleChatClient:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "SolutionSeekersHackathon-RAG/1.0",
             },
             method="POST",
         )
@@ -393,6 +407,14 @@ class RAGAssistant:
         if not answer or INSUFFICIENT_TOKEN in answer.upper():
             return self._abstain(question, "model_found_insufficient_evidence", len(evidence))
         citations, invalid = _citations_for_answer(answer, evidence)
+        if invalid or not citations:
+            repair_prompt = user_prompt + CITATION_REPAIR_PROMPT.format(draft=answer)
+            answer = self.chat_client.complete(SYSTEM_PROMPT, repair_prompt).strip()
+            if not answer or INSUFFICIENT_TOKEN in answer.upper():
+                return self._abstain(
+                    question, "model_found_insufficient_evidence", len(evidence)
+                )
+            citations, invalid = _citations_for_answer(answer, evidence)
         if invalid:
             return self._abstain(
                 question, f"invalid_model_citations:{','.join(invalid)}", len(evidence)
