@@ -3,6 +3,49 @@
 Wealth Advisor Assistant prototype for evidence-grounded, citation-ready RAG over
 the supplied APAC wealth-management dataset.
 
+## Chat interface
+
+```powershell
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+Open the local URL printed by Streamlit (normally http://localhost:8501).
+The UI reads `data/processed/chunks.jsonl`, supports session-only PDF, TXT, MD,
+CSV and JSON uploads (20 MB per file), document-type filters, source expanders,
+conversation reset, feedback and JSON conversation export. Uploaded documents
+are processed only when you click **Process uploaded documents**; processing a
+new batch replaces the previous uploaded batch. It does not modify the raw or
+processed corpus. PDFs need extractable text; OCR is not included.
+
+Until a backend is connected, the app explicitly runs in **Document search**
+mode: local keyword ranking returns original evidence passages, or a no-match
+message. This preview does not perform semantic retrieval, generate advice,
+calculate portfolio exposure, or interpret follow-up questions using history.
+It is a working UI, not the complete mandatory RAG implementation.
+
+### Connect the RAG backend
+
+Implement this function in `src/rag.py`; the UI detects it automatically:
+
+```python
+def answer(*, question, chunks, history, top_k):
+    # Retrieve and generate using your backend here.
+    # history contains earlier {"role": ..., "content": ...} messages.
+    # Sources must be the actual passages supporting the answer.
+    return {
+        "answer": "Your grounded answer with citations such as [1].",
+        "sources": [],  # Chunk dictionaries: id, text, metadata
+        "abstained": False,
+    }
+```
+
+The backend must respect the supplied filtered `chunks`, return sources in
+citation order, and abstain when evidence is insufficient. It owns semantic
+retrieval, model configuration and conversation-context handling. Source text
+is displayed literally. Feedback is session-local and included in the download.
+The interface uses Streamlit's [chat elements](https://docs.streamlit.io/develop/api-reference/chat).
+
 ## Person 1: ingestion and document processing
 
 `src/ingestion.py` converts the raw corpus into vector-store-neutral
