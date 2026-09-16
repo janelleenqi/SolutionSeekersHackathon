@@ -51,6 +51,13 @@ class StructuredDataTests(unittest.TestCase):
         self.assertIn("structured calculation", block)
         self.assertIn("row", block)
 
+    def test_correspondence_is_loaded_and_validated(self):
+        self.assertEqual(len(self.store.email_threads), 7)
+        self.assertEqual(len(self.store.email_messages), 18)
+        thread = self.store.email_threads[0]
+        self.assertEqual(thread["client_id"], "CL006")
+        self.assertEqual(self.store.email_messages[0]["thread_id"], "EML-001")
+
 
 if __name__ == "__main__":
     unittest.main()

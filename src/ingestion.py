@@ -412,6 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
     parser.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP)
     parser.add_argument("--include-structured", action="store_true")
+    parser.add_argument("--database", type=Path)
     parser.add_argument("--strict", action="store_true")
     return parser
 
@@ -424,6 +425,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.input, args.output, args.chunk_size, args.chunk_overlap, args.include_structured
             )
         )
+        if args.database:
+            from src.database import load_database
+
+            manifest["database"] = load_database(args.input, args.database)
     except Exception as exc:
         print(f"Ingestion failed: {exc}", file=sys.stderr)
         return 1

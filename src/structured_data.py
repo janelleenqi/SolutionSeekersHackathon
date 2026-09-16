@@ -23,6 +23,7 @@ DEFAULT_DATA_DIR = Path("data/raw/client_portfolio")
 CLIENT_JSON = "clients_portfolio.json"
 HOLDINGS_CSV = "clients_portfolio.csv"
 TRANSACTIONS_CSV = "transactions.csv"
+CORRESPONDENCE_JSON = "client_correspondence.json"
 COMPLEX_ASSET_KEYWORDS = ("complex", "structured", "specified investment", "sip")
 
 
@@ -100,6 +101,7 @@ class StructuredDataStore:
         self.clients = self._load_clients()
         self.holdings = self._load_holdings()
         self.transactions = self._load_transactions()
+        self.email_threads, self.email_messages = self._load_correspondence()
         self.clients_by_id = {client["client_id"]: client for client in self.clients}
         self.holdings_by_client: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.transactions_by_client: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -166,6 +168,50 @@ class StructuredDataStore:
             raise StructuredDataError(f"{TRANSACTIONS_CSV} contains no records")
         return rows
 
+    def _load_correspondence(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        path = self.data_dir.parent / "operational" / CORRESPONDENCE_JSON
+        if not path.is_file():
+            raise FileNotFoundError(f"Correspondence file does not exist: {path}")
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        threads = payload.get("email_threads") if isinstance(payload, dict) else None
+        if not isinstance(threads, list) or not threads:
+            raise StructuredDataError(f"{CORRESPONDENCE_JSON} must contain a non-empty email_threads list")
+        email_threads: list[dict[str, Any]] = []
+        email_messages: list[dict[str, Any]] = []
+        for thread in threads:
+            if not all(thread.get(field) for field in ("thread_id", "related_client_id", "subject")):
+                raise StructuredDataError(f"{CORRESPONDENCE_JSON} contains a thread with missing required fields")
+            email_threads.append({
+                "thread_id": thread["thread_id"],
+                "client_id": thread["related_client_id"],
+                "subject": thread["subject"],
+            })
+            messages = thread.get("messages")
+            if not isinstance(messages, list) or not messages:
+                raise StructuredDataError(
+                    f"{CORRESPONDENCE_JSON} thread {thread['thread_id']} must contain messages"
+                )
+            for order, message in enumerate(messages, start=1):
+                if not all(message.get(field) for field in ("from", "to", "date", "body")):
+                    raise StructuredDataError(
+                        f"{CORRESPONDENCE_JSON} thread {thread['thread_id']} contains an incomplete message"
+                    )
+                try:
+                    date.fromisoformat(message["date"])
+                except (TypeError, ValueError) as exc:
+                    raise StructuredDataError(
+                        f"{CORRESPONDENCE_JSON} thread {thread['thread_id']}: message date must use YYYY-MM-DD"
+                    ) from exc
+                email_messages.append({
+                    "thread_id": thread["thread_id"],
+                    "message_order": order,
+                    "sender_email": message["from"],
+                    "recipient_email": message["to"],
+                    "sent_date": message["date"],
+                    "body": message["body"],
+                })
+        return email_threads, email_messages
+
     def _validate(self) -> dict[str, Any]:
         errors: list[str] = []
         client_ids = [str(client.get("client_id", "")) for client in self.clients]
@@ -183,6 +229,15 @@ class StructuredDataStore:
         unknown_transaction_clients = sorted(transaction_ids - known_ids)
         if unknown_transaction_clients:
             errors.append(f"transactions reference unknown clients: {unknown_transaction_clients}")
+        thread_ids = [thread["thread_id"] for thread in self.email_threads]
+        duplicate_threads = sorted(key for key, count in Counter(thread_ids).items() if count > 1)
+        if duplicate_threads:
+            errors.append(f"duplicate email thread IDs: {duplicate_threads}")
+        unknown_email_clients = sorted(
+            {thread["client_id"] for thread in self.email_threads} - known_ids
+        )
+        if unknown_email_clients:
+            errors.append(f"email threads reference unknown clients: {unknown_email_clients}")
 
         duplicate_transactions = sorted(
             key
@@ -245,6 +300,8 @@ class StructuredDataStore:
             "client_count": len(self.clients),
             "holding_count": len(self.holdings),
             "transaction_count": len(self.transactions),
+            "email_thread_count": len(self.email_threads),
+            "email_message_count": len(self.email_messages),
             "pending_transaction_count": sum(
                 transaction["status"].casefold() == "pending"
                 for transaction in self.transactions
@@ -256,6 +313,7 @@ class StructuredDataStore:
                 "holding values reconcile to client AUM",
                 "JSON holdings reconcile to flattened CSV holdings",
                 "ISO transaction dates and non-negative amounts",
+                "email thread client references, unique IDs, and ISO message dates",
             ],
         }
 
@@ -527,12 +585,14 @@ class StructuredDataStore:
             "validate",
             f"Validated {self.validation['client_count']} clients, "
             f"{self.validation['holding_count']} holdings, and "
-            f"{self.validation['transaction_count']} transactions.",
+            f"{self.validation['transaction_count']} transactions, and "
+            f"{self.validation['email_thread_count']} email threads.",
             self.validation,
             [
                 SourceReference(self._source_path(CLIENT_JSON), "clients"),
                 SourceReference(self._source_path(HOLDINGS_CSV), "holdings"),
                 SourceReference(self._source_path(TRANSACTIONS_CSV), "transactions"),
+                SourceReference("operational/client_correspondence.json", "email_threads"),
             ],
         )
 

@@ -75,6 +75,23 @@ The run produces:
 - `chunks.jsonl`: cleaned, overlapped, citation-ready passages.
 - `manifest.json`: settings, per-source/type counts, and extraction errors.
 
+To build the SQLite database represented by the relational schema, run the
+database loader directly:
+
+```powershell
+python -m src.database --input data/raw --database data/wealth.db
+```
+
+Or build the document chunks and SQLite database together:
+
+```powershell
+python -m src.ingestion --input data/raw --output data/processed --database data/wealth.db --strict
+```
+
+The loader replaces the six structured tables in one transaction. It creates
+`clients`, `products`, `holdings`, `transactions`, `email_threads`, and
+`email_messages`, with foreign keys enabled and counts printed as JSON.
+
 PDF chunks never cross page boundaries. Cleanup normalizes Unicode and whitespace,
 repairs common line-break hyphenation, and conservatively removes repeated page
 headers/footers. The process continues past a damaged file and logs it; `--strict`
@@ -156,10 +173,12 @@ chunk ID, and retrieval score. API keys are read only from environment variables
 
 ## Person 3: structured data and calculations
 
-`src/structured_data.py` reads the portfolio JSON, flattened holdings CSV, and
-transaction ledger directly. These records are not stored in Chroma. Exact values,
-percentages, dates, transaction statuses, and comparisons are calculated in Python
-and returned with source-file, record, and CSV-row references.
+`src/structured_data.py` reads and validates the portfolio JSON, flattened holdings
+CSV, transaction ledger, and client correspondence JSON. These records are not
+stored in Chroma. Exact values, percentages, dates, transaction statuses,
+comparisons, and email thread relationships are normalized in Python and returned
+with source-file, record, and CSV-row references. The SQLite loader consumes this
+validated structured view and stores all of these records in the relational tables.
 
 Validate cross-file consistency:
 
@@ -180,6 +199,8 @@ python -m src.structured_data concentrations --threshold 20
 At load time the module rejects duplicate identifiers, unknown client references,
 invalid dates/numbers, portfolio allocations that do not total 100%, holding values
 that do not reconcile to AUM, and differences between the JSON and flattened CSV.
+It also validates correspondence thread IDs, client references, message fields, and
+message dates before database insertion.
 `StructuredResult.to_prompt_block()` converts a validated result into a labeled
 evidence block. `rag.py` now performs that hybrid integration automatically:
 named-client questions receive structured profile/holding/transaction evidence,
