@@ -2,7 +2,7 @@
   "chunks_by_document_type": {
     "client_complaint": 5,
     "client_correspondence": 18,
-    "fund_factsheet": 35,
+    "fund_factsheet": 34,
     "policy": 10,
     "risk_acknowledgement": 5,
     "rm_call_note": 8
@@ -10,7 +10,7 @@
   "chunks_by_source": {
     "fund_factsheets/fund_factsheet_balanced_income_growth.pdf": 3,
     "fund_factsheets/fund_factsheet_dci_aud_usd.pdf": 4,
-    "fund_factsheets/fund_factsheet_exotic_unsafe.pdf": 6,
+    "fund_factsheets/fund_factsheet_exotic_unsafe.pdf": 5,
     "fund_factsheets/fund_factsheet_global_bond_income.pdf": 3,
     "fund_factsheets/fund_factsheet_global_reit_basket.pdf": 3,
     "fund_factsheets/fund_factsheet_global_tech_innovation.pdf": 3,
@@ -25,7 +25,7 @@
     "policy/policy_investment_suitability.pdf": 5,
     "policy/policy_kyc_onboarding.pdf": 5
   },
-  "created_at_utc": "2026-09-16T04:02:51.082851+00:00",
+  "created_at_utc": "2026-09-16T04:48:02.435225+00:00",
   "errors": [],
   "files_discovered": 16,
   "files_succeeded": 16,
@@ -37,5 +37,5 @@
     "chunk_size": 1200,
     "include_structured": false
   },
-  "total_chunks": 81
+  "total_chunks": 80
 }

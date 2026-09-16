@@ -1,0 +1,44 @@
+[
+  {
+    "id": "RET-001",
+    "query": "Is the APEX Autocallable Note suitable for a Conservative retail client such as Robert Chua, and is a signed risk acknowledgement on file?",
+    "expected_sources": [
+      "policy/policy_investment_suitability.pdf",
+      "fund_factsheets/fund_factsheet_exotic_unsafe.pdf",
+      "operational/client_correspondence.json",
+      "operational/complex_product_risk_acknowledgement_forms.pdf"
+    ]
+  },
+  {
+    "id": "RET-002",
+    "query": "Walk me through what happened with Carlos Bautista's AUD/USD Dual Currency Investment trade and the missing CAR or CKA.",
+    "expected_sources": [
+      "fund_factsheets/fund_factsheet_dci_aud_usd.pdf",
+      "operational/client_correspondence.json",
+      "operational/rm_call_notes_log.pdf"
+    ]
+  },
+  {
+    "id": "RET-003",
+    "query": "Has James Sullivan's portfolio been rebalanced since he asked to de-risk for retirement?",
+    "expected_sources": [
+      "operational/client_correspondence.json",
+      "operational/rm_call_notes_log.pdf",
+      "operational/client_complaint_letters.pdf"
+    ]
+  },
+  {
+    "id": "RET-004",
+    "query": "Does the twenty percent concentration guideline for Complex Products apply specifically to Retail Investors or also to Accredited Investors?",
+    "expected_sources": [
+      "policy/policy_investment_suitability.pdf"
+    ]
+  },
+  {
+    "id": "RET-005",
+    "query": "What enhanced due diligence and ongoing monitoring are required for PEPs or PEP-adjacent clients?",
+    "expected_sources": [
+      "policy/policy_kyc_onboarding.pdf"
+    ]
+  }
+]

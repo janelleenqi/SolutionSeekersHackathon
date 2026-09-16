@@ -10,6 +10,9 @@ class IngestionTests(unittest.TestCase):
     def test_clean_text_repairs_pdf_hyphenation(self):
         self.assertEqual(clean_text("invest-\nment   policy\r\n\r\n\r\nNext"), "investment policy\n\nNext")
 
+    def test_clean_text_removes_pdf_control_characters(self):
+        self.assertEqual(clean_text("\x7f Complex Product\x0b"), "Complex Product")
+
     def test_chunking_is_bounded_and_overlapping(self):
         text = "\n\n".join(f"Paragraph {i} has useful evidence and details." for i in range(20))
         chunks = chunk_text(text, chunk_size=180, overlap=50)

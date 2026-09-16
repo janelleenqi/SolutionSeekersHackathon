@@ -42,3 +42,39 @@ makes any extraction error fail CI.
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+## Person 2: Sentence Transformer retrieval
+
+The retrieval layer uses `sentence-transformers/all-MiniLM-L6-v2` to create
+unit-normalized embeddings and stores them in a persistent Chroma collection using
+cosine distance. The first run downloads the model; later runs use the local model
+cache.
+
+Build or update the index:
+
+```powershell
+python -m src.retrieval index
+```
+
+Retrieve citation-ready evidence:
+
+```powershell
+python -m src.retrieval search "Is the APEX Autocallable suitable for a Conservative client?" --top-k 5
+```
+
+Optional filters can be supplied with `--client-id CL002` or
+`--document-type policy`. Each result includes its rank, cosine score, passage,
+chunk ID, source path, and PDF page metadata.
+
+Run the source-level retrieval evaluation:
+
+```powershell
+python -m src.retrieval evaluate --top-k 5
+```
+
+This reports Recall@K, Hit@K, and mean reciprocal rank over the cases in
+`data/evaluation/retrieval_cases.json` and saves the full report to
+`data/evaluation/retrieval_results.json`. Re-running `index` performs deterministic
+upserts and removes stale chunk IDs, so unchanged chunks are not duplicated. The
+generated `data/vector_db` directory is local and Git-ignored; rebuild it from the
+tracked chunks after cloning the project.

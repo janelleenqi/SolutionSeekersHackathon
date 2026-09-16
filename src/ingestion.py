@@ -55,6 +55,7 @@ def clean_text(text: str) -> str:
     """Normalize extraction noise while preserving evidence-bearing wording."""
     text = unicodedata.normalize("NFKC", text or "")
     text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+    text = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     text = re.sub(r"(?<=\w)-\n(?=[a-z])", "", text)
     text = re.sub(r"[\t\u00a0 ]+", " ", text)
     text = re.sub(r" *\n *", "\n", text)

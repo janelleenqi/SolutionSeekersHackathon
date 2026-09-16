@@ -1,0 +1,79 @@
+{
+  "top_k": 5,
+  "case_count": 5,
+  "mean_recall_at_k": 0.95,
+  "hit_rate_at_k": 1.0,
+  "mean_reciprocal_rank": 1.0,
+  "cases": [
+    {
+      "id": "RET-001",
+      "query": "Is the APEX Autocallable Note suitable for a Conservative retail client such as Robert Chua, and is a signed risk acknowledgement on file?",
+      "recall": 0.75,
+      "hit": 1.0,
+      "reciprocal_rank": 1.0,
+      "retrieved_sources": [
+        "fund_factsheets/fund_factsheet_exotic_unsafe.pdf",
+        "operational/client_correspondence.json",
+        "operational/client_complaint_letters.pdf",
+        "operational/client_correspondence.json",
+        "operational/complex_product_risk_acknowledgement_forms.pdf"
+      ]
+    },
+    {
+      "id": "RET-002",
+      "query": "Walk me through what happened with Carlos Bautista's AUD/USD Dual Currency Investment trade and the missing CAR or CKA.",
+      "recall": 1.0,
+      "hit": 1.0,
+      "reciprocal_rank": 1.0,
+      "retrieved_sources": [
+        "operational/client_correspondence.json",
+        "operational/client_correspondence.json",
+        "operational/rm_call_notes_log.pdf",
+        "operational/rm_call_notes_log.pdf",
+        "fund_factsheets/fund_factsheet_dci_aud_usd.pdf"
+      ]
+    },
+    {
+      "id": "RET-003",
+      "query": "Has James Sullivan's portfolio been rebalanced since he asked to de-risk for retirement?",
+      "recall": 1.0,
+      "hit": 1.0,
+      "reciprocal_rank": 1.0,
+      "retrieved_sources": [
+        "operational/client_correspondence.json",
+        "operational/rm_call_notes_log.pdf",
+        "operational/client_complaint_letters.pdf",
+        "operational/client_correspondence.json",
+        "operational/client_correspondence.json"
+      ]
+    },
+    {
+      "id": "RET-004",
+      "query": "Does the twenty percent concentration guideline for Complex Products apply specifically to Retail Investors or also to Accredited Investors?",
+      "recall": 1.0,
+      "hit": 1.0,
+      "reciprocal_rank": 1.0,
+      "retrieved_sources": [
+        "policy/policy_investment_suitability.pdf",
+        "fund_factsheets/fund_factsheet_global_tech_innovation.pdf",
+        "operational/rm_call_notes_log.pdf",
+        "policy/policy_investment_suitability.pdf",
+        "fund_factsheets/fund_factsheet_global_tech_innovation.pdf"
+      ]
+    },
+    {
+      "id": "RET-005",
+      "query": "What enhanced due diligence and ongoing monitoring are required for PEPs or PEP-adjacent clients?",
+      "recall": 1.0,
+      "hit": 1.0,
+      "reciprocal_rank": 1.0,
+      "retrieved_sources": [
+        "policy/policy_kyc_onboarding.pdf",
+        "policy/policy_kyc_onboarding.pdf",
+        "operational/rm_call_notes_log.pdf",
+        "policy/policy_investment_suitability.pdf",
+        "operational/client_complaint_letters.pdf"
+      ]
+    }
+  ]
+}
