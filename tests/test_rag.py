@@ -4,6 +4,7 @@ from src.rag import (
     ABSTENTION,
     RAGAssistant,
     StructuredQueryRouter,
+    CoverageRetriever,
     build_evidence_prompt,
 )
 from src.structured_data import StructuredDataStore
@@ -60,6 +61,35 @@ class SequenceChatClient(FakeChatClient):
 
 
 class RAGTests(unittest.TestCase):
+    def test_documentation_review_corrects_requested_vs_missing(self):
+        evidence = [{**EVIDENCE[0], "text": (
+            "Compliance requested the trade file and RPQ. The RM replied: I cannot "
+            "locate a signed product-specific acknowledgement; only a general disclosure exists."
+        )}]
+        client = SequenceChatClient([
+            "The trade file and RPQ are missing [S1].",
+            "The RM could not locate the product-specific acknowledgement. "
+            "The trade file and RPQ were requested, not confirmed missing [S1].",
+        ])
+        result = RAGAssistant(FakeRetriever(evidence), client).answer("What documentation is missing?")
+        self.assertFalse(result.abstained)
+        self.assertIn("not confirmed missing", result.answer)
+        self.assertIn("requested document", client.calls[1][1])
+
+    def test_coverage_retrieval_respects_scope_and_budget(self):
+        class Search:
+            def __init__(self):
+                self.calls = []
+            def search(self, query, top_k=5, filters=None):
+                self.calls.append(filters)
+                return [{"id": str(len(self.calls)), "score": .8, "text": query}]
+        delegate = Search()
+        scope = {"document_type": {"$in": ["policy", "client_correspondence"]}}
+        hits = CoverageRetriever(delegate).search("Is CL002 suitable? Documentation missing", 3, scope)
+        self.assertEqual(len(hits), 3)
+        self.assertEqual(delegate.calls[1]["$and"][0], scope)
+        self.assertIn("CL002", str(delegate.calls[2]))
+
     def test_grounded_answer_maps_model_labels_to_real_sources(self):
         client = FakeChatClient("The product is high risk [S2] and requires risk matching [S1].")
         result = RAGAssistant(FakeRetriever(), client).answer("Is this suitable?")
