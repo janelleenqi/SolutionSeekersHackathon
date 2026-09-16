@@ -218,3 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 # Generated local vector index (rebuild with: python -m src.retrieval index)
 data/vector_db/
+
+*venv*
+*query_logs.db*
