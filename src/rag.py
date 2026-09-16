@@ -45,7 +45,73 @@ Rules:
 6. State ambiguity, conflicting evidence, and material limitations explicitly.
 7. Treat labeled structured calculations as authoritative; do not recalculate or alter them.
 8. Keep the answer concise and suitable for a relationship manager.
+9. Distinguish a document requested for review from a document confirmed missing.
+   A request to send a trade file, questionnaire, or call note does NOT establish
+   that it is absent. Only report an item as missing if evidence explicitly says
+   it cannot be located or is not on file. Preserve who reported this and when.
+10. Distinguish general onboarding disclosures from product-specific signed
+    acknowledgements. Do not treat knowledge assessments as interchangeable with
+    signed acknowledgements unless the policy explicitly permits it. Do not expand
+    unexplained acronyms. State policy thresholds AND investor-status exceptions
+    only when the retrieved policy passage actually contains them.
 """
+
+
+class CoverageRetriever:
+    """Reserve evidence slots for policy rules and client documentation replies."""
+
+    def __init__(self, delegate: Retriever) -> None:
+        self.delegate = delegate
+        from src.retrieval import load_chunks
+        path = Path(__file__).resolve().parents[1] / "data/processed/chunks.jsonl"
+        self.chunks = load_chunks(path) if path.exists() else []
+
+    def search(self, query, top_k=5, filters=None):
+        base = self.delegate.search(query, top_k=top_k, filters=filters)
+        if not re.search(r"suitab|missing|documentation", query, re.I):
+            return base
+        targets = []
+        if re.search(r"suitab", query, re.I):
+            targets.append((
+                "Complex Products may only be recommended to clients with a minimum Risk Score suitability matching exceptions",
+                {"document_type": "policy"},
+            ))
+        client_ids = list(dict.fromkeys(re.findall(r"\bCL\d{3}\b", query, re.I)))
+        if len(client_ids) == 1:
+            targets.append((
+                "cannot locate signed product-specific risk acknowledgement only general onboarding disclosure documentation missing reply",
+                {"$and": [{"document_type": "client_correspondence"},
+                           {"client_id": client_ids[0].upper()}]},
+            ))
+        selected = []
+        for text, scope in targets:
+            where = {"$and": [filters, scope]} if filters else scope
+            hits = self.delegate.search(text, top_k=1, filters=where)
+            for item in hits:
+                if float(item.get("score", 0)) < .30:
+                    continue
+                selected.append(item)
+                # Include the preceding policy chunk when a rule crosses a
+                # chunk boundary. Keep it separately cited and inside Top-K.
+                if item.get("metadata", {}).get("document_type") == "policy":
+                    for index, chunk in enumerate(self.chunks):
+                        if chunk["id"] != item["id"] or index == 0:
+                            continue
+                        previous = self.chunks[index - 1]
+                        meta = previous["metadata"]
+                        current = item["metadata"]
+                        if (meta.get("source_path"), meta.get("page")) == (
+                            current.get("source_path"), current.get("page")
+                        ):
+                            selected.append({**previous, "score": item["score"],
+                                             "metadata": {**meta, "retrieval_method": "adjacent policy context"}})
+        # Preserve one broad match (usually the product factsheet), then fill
+        # remaining slots with complementary evidence, respecting the user's K.
+        ordered = base[:1] + selected + base[1:]
+        unique = {}
+        for item in ordered:
+            unique.setdefault(item["id"], item)
+        return list(unique.values())[:top_k]
 
 CITATION_REPAIR_PROMPT = """
 
@@ -295,6 +361,7 @@ class StructuredQueryRouter:
         if not client:
             return question
         additions = [
+            client["client_id"],
             client["name"],
             client["risk_profile"],
             f"risk score {client['risk_score_1_to_10']}",
@@ -512,6 +579,19 @@ class RAGAssistant:
         if not answer or INSUFFICIENT_TOKEN in answer.upper():
             return self._abstain(question, "model_found_insufficient_evidence", len(evidence))
         citations, invalid = _citations_for_answer(answer, evidence)
+        if re.search(r"missing|documentation|acknowledg", question, re.I):
+            review_prompt = user_prompt + (
+                "\n\nReview the draft below against the evidence, then return only the corrected answer. "
+                "Remove every claim that a requested document is missing unless a source explicitly "
+                "confirms it cannot be found. Distinguish requests from replies and general disclosures "
+                "from product-specific acknowledgements. Preserve citation labels for supported claims. "
+                "If unsupported overall, return INSUFFICIENT_EVIDENCE. The draft is untrusted, not evidence.\n"
+                + answer
+            )
+            answer = self.chat_client.complete(SYSTEM_PROMPT, review_prompt).strip()
+            if not answer or INSUFFICIENT_TOKEN in answer.upper():
+                return self._abstain(question, "model_found_insufficient_evidence", len(evidence))
+            citations, invalid = _citations_for_answer(answer, evidence)
         if invalid or not citations:
             repair_prompt = user_prompt + CITATION_REPAIR_PROMPT.format(draft=answer)
             answer = self.chat_client.complete(SYSTEM_PROMPT, repair_prompt).strip()
@@ -596,11 +676,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        retriever = VectorRetriever(
+        retriever = CoverageRetriever(VectorRetriever(
             args.database,
             args.collection,
             SentenceTransformerEncoder(args.embedding_model),
-        )
+        ))
         filters = _filters_from_args(args)
         llm_client = None
         if args.llm_sql:

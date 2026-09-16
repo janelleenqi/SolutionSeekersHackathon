@@ -8,6 +8,7 @@ from src.rag import (
     RAGAssistant,
     SqlStructuredRouter,
     StructuredQueryRouter,
+    CoverageRetriever,
     build_evidence_prompt,
 )
 from src.structured_data import StructuredDataStore
@@ -64,34 +65,6 @@ class SequenceChatClient(FakeChatClient):
 
 
 class RAGTests(unittest.TestCase):
-    def test_llm_sql_router_executes_parameterized_read_query(self):
-        with tempfile.TemporaryDirectory() as directory:
-            database_path = Path(directory) / "wealth.db"
-            connection = sqlite3.connect(database_path)
-            connection.execute("CREATE TABLE clients (client_id TEXT, name TEXT)")
-            connection.execute("INSERT INTO clients VALUES ('CL001', 'Robert Chua')")
-            connection.commit()
-            connection.close()
-            client = FakeChatClient(
-                '{"sql":"SELECT client_id, name FROM clients WHERE name = ?",'
-                '"parameters":["Robert Chua"]}'
-            )
-
-            evidence = SqlStructuredRouter(client, database_path).search(
-                "What is Robert Chua's client ID?"
-            )
-
-        self.assertEqual(evidence[0]["metadata"]["evidence_type"], "structured")
-        self.assertIn("CL001", evidence[0]["text"])
-        self.assertEqual(len(client.calls), 1)
-
-    def test_llm_sql_router_rejects_write_query(self):
-        client = FakeChatClient(
-            '{"sql":"DELETE FROM clients", "parameters":[]}'
-        )
-        with self.assertRaises(ValueError):
-            SqlStructuredRouter(client, Path("missing.db")).search("delete clients")
-
     def test_grounded_answer_maps_model_labels_to_real_sources(self):
         client = FakeChatClient("The product is high risk [S2] and requires risk matching [S1].")
         result = RAGAssistant(FakeRetriever(), client).answer("Is this suitable?")

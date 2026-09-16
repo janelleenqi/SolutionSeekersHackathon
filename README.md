@@ -1,5 +1,23 @@
 # SolutionSeekersHackathon
 
+## Frontend
+
+Start from the same PowerShell terminal where your LLM variables are configured:
+
+```powershell
+python -m streamlit run app.py
+```
+
+The UI also reads a local `.env` file (existing environment variables take priority).
+Set `LLM_MODEL`, `LLM_API_KEY`, and `LLM_BASE_URL` for your provider.
+The frontend uses the existing Chroma index and validated structured data through
+`src/chat_service.py`. Evidence preview works without LLM credentials. Each question
+is independent; include the client name or ID. Source expanders retain the exact
+answer citation labels and show retrieved passages and structured record references.
+Document-type filters affect only document retrieval. Feedback and exported chat
+history are session-local. Uploads are not enabled; add documents through ingestion
+and rebuild the index before restarting the frontend.
+
 Wealth Advisor Assistant prototype for evidence-grounded, citation-ready RAG over
 the supplied APAC wealth-management dataset.
 
@@ -140,6 +158,13 @@ generated `data/vector_db` directory is local and Git-ignored; rebuild it from t
 tracked chunks after cloning the project.
 
 ## Person 4: grounded RAG answers
+
+Suitability/documentation queries reserve document slots for targeted policy and
+client-correspondence searches while retaining the selected Top-K limit and filters.
+Documentation questions receive one additional LLM review to distinguish records
+requested by Compliance from records explicitly reported missing. This adds latency
+and token usage; citation-label validation and an LLM review do not guarantee factual
+correctness. Continue evaluating the final answers against the golden dataset.
 
 `src/rag.py` connects retrieval to an OpenAI-compatible chat endpoint. It labels
 retrieved passages as `[S1]`, `[S2]`, and so on, requires those labels in the

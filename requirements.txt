@@ -82,5 +82,6 @@ uvicorn==0.53.0
 uvloop==0.22.1; sys_platform != "win32"
 watchfiles==1.2.0
 websocket-client==1.9.2
-websockets==17.1
+websockets>=14,<17
 yarl==1.25.1
+streamlit>=1.40,<2
