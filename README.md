@@ -1,5 +1,6 @@
 # SolutionSeekersHackathon
 
+
 Wealth Advisor Assistant prototype for evidence-grounded, citation-ready RAG over
 the supplied APAC wealth-management dataset.
 
