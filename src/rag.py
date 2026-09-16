@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import sys
 import urllib.error
 import urllib.request
@@ -304,6 +305,110 @@ class StructuredQueryRouter:
         return question + " " + " ".join(dict.fromkeys(additions))
 
 
+SQL_PLANNER_SYSTEM_PROMPT = """You convert a wealth-management question into one SQLite read query.
+
+Return JSON only, with this exact shape:
+{"sql": "SELECT ...", "parameters": []}
+
+Rules:
+- Return exactly one SELECT or WITH query. Never return INSERT, UPDATE, DELETE,
+  DROP, ALTER, CREATE, PRAGMA, or multiple statements.
+- Use ? placeholders for every user-derived value. Put matching values in parameters.
+- You may query only these tables: clients, products, holdings, transactions,
+  email_threads, email_messages.
+- Do not use database functions or tables outside that list.
+
+Schema:
+clients(client_id, name, nationality, residency_country, age, occupation,
+marital_status, net_worth_band, investor_status, base_currency, aum,
+risk_profile, risk_score, investment_objective, relationship_manager,
+servicing_branch, kyc_status, pep_status, source_of_wealth,
+last_portfolio_review_date, suitability_flag, notes)
+products(product_name, asset_class)
+holdings(holding_id, client_id, allocation_percentage, product_name, value_sgd, currency)
+transactions(transaction_id, client_id, transaction_date, transaction_type,
+amount, currency, status, notes, product_name)
+email_threads(thread_id, client_id, subject)
+email_messages(message_id, thread_id, message_order, sender_email,
+recipient_email, sent_date, body)
+"""
+
+
+class SqlStructuredRouter:
+    """Use an LLM to plan a safe read query, then execute it locally."""
+
+    ALLOWED_TABLES = {
+        "clients", "products", "holdings", "transactions",
+        "email_threads", "email_messages",
+    }
+    FORBIDDEN_TERMS = re.compile(
+        r"\b(insert|update|delete|drop|alter|create|replace|attach|detach|pragma|vacuum|reindex)\b",
+        re.IGNORECASE,
+    )
+    TABLE_REFERENCE = re.compile(r"\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE)
+
+    def __init__(self, chat_client: ChatClient, database_path: Path) -> None:
+        self.chat_client = chat_client
+        self.database_path = Path(database_path)
+
+    @classmethod
+    def _parse_plan(cls, raw_plan: str) -> tuple[str, list[Any]]:
+        cleaned = raw_plan.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
+        try:
+            plan = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            raise ValueError("SQL planner returned invalid JSON") from exc
+        if not isinstance(plan, dict) or not isinstance(plan.get("sql"), str):
+            raise ValueError("SQL planner must return an object containing sql")
+        parameters = plan.get("parameters", [])
+        if not isinstance(parameters, list):
+            raise ValueError("SQL planner parameters must be a list")
+        sql = plan["sql"].strip()
+        if not re.match(r"^(?:select|with)\b", sql, re.IGNORECASE):
+            raise ValueError("Only SELECT or WITH SQL is allowed")
+        if ";" in sql or cls.FORBIDDEN_TERMS.search(sql):
+            raise ValueError("SQL planner returned a forbidden statement")
+        tables = {table.casefold() for table in cls.TABLE_REFERENCE.findall(sql)}
+        if not tables or not tables.issubset(cls.ALLOWED_TABLES):
+            raise ValueError("SQL planner referenced an unsupported table")
+        if sql.count("?") != len(parameters):
+            raise ValueError("SQL placeholder and parameter counts differ")
+        return sql, parameters
+
+    def search(self, question: str) -> list[dict[str, Any]]:
+        raw_plan = self.chat_client.complete(
+            SQL_PLANNER_SYSTEM_PROMPT,
+            f"QUESTION:\n{question.strip()}",
+        )
+        sql, parameters = self._parse_plan(raw_plan)
+        connection = sqlite3.connect(f"file:{self.database_path}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = [dict(row) for row in connection.execute(sql, parameters).fetchall()]
+        finally:
+            connection.close()
+        if not rows:
+            return []
+        return [{
+            "id": "structured:sql",
+            "text": (
+                "Operation: LLM-generated read-only SQL\n"
+                f"Query result: {json.dumps(rows, ensure_ascii=False, sort_keys=True)}"
+            ),
+            "score": 1.0,
+            "metadata": {
+                "evidence_type": "structured",
+                "source_path": str(self.database_path),
+                "source_references": [{"sql": sql, "row_count": len(rows)}],
+            },
+        }]
+
+    def expand_retrieval_query(self, question: str) -> str:
+        return question
+
+
 def build_evidence_prompt(question: str, evidence: Sequence[dict[str, Any]]) -> str:
     """Serialize evidence with model-visible labels and provenance."""
     blocks: list[str] = []
@@ -459,6 +564,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--client-id")
     parser.add_argument("--document-type")
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
+    parser.add_argument(
+        "--structured-database",
+        type=Path,
+        default=Path("data/wealth.db"),
+        help="SQLite database used by the optional LLM-to-SQL router",
+    )
     parser.add_argument("--collection", default=DEFAULT_COLLECTION)
     parser.add_argument("--embedding-model", default=DEFAULT_MODEL)
     parser.add_argument("--llm-model")
@@ -468,6 +579,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-structured",
         action="store_true",
         help="Disable deterministic client, holding, and transaction evidence",
+    )
+    parser.add_argument(
+        "--llm-sql",
+        action="store_true",
+        help="Use the LLM to create a guarded read-only SQL query for structured data",
     )
     parser.add_argument(
         "--show-prompt",
@@ -486,9 +602,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             SentenceTransformerEncoder(args.embedding_model),
         )
         filters = _filters_from_args(args)
-        structured_router = (
-            None
-            if args.no_structured
+        llm_client = None
+        if args.llm_sql:
+            llm_client = OpenAICompatibleChatClient.from_environment(
+                args.llm_model, args.llm_base_url
+            )
+        structured_router = None if args.no_structured else (
+            SqlStructuredRouter(llm_client, args.structured_database)
+            if args.llm_sql
             else StructuredQueryRouter(StructuredDataStore(args.structured_data_dir))
         )
         if args.show_prompt:
@@ -508,7 +629,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             evidence = structured + documents
             print(build_evidence_prompt(args.question, evidence))
             return 0
-        client = OpenAICompatibleChatClient.from_environment(
+        client = llm_client or OpenAICompatibleChatClient.from_environment(
             args.llm_model, args.llm_base_url
         )
         response = RAGAssistant(

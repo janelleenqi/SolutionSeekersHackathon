@@ -167,6 +167,20 @@ Generate a grounded answer:
 python -m src.rag "Is the APEX note suitable for a Conservative client?"
 ```
 
+To let the LLM query the structured SQLite database, build the database first
+and enable the guarded SQL router:
+
+```powershell
+python -m src.database --input data/raw --database data/wealth.db
+python -m src.rag "What are Robert Chua's pending transactions?" --llm-sql --structured-database data/wealth.db
+```
+
+The SQL planner returns JSON containing a single read-only `SELECT` or `WITH`
+query and parameters. The application validates the statement, allows only the
+known structured tables, executes it through a read-only SQLite connection, and
+passes the returned rows to the existing citation-validated answer model. The
+default remains the deterministic structured router; use `--llm-sql` to opt in.
+
 The JSON response includes the answer, an `abstained` flag, a machine-readable
 reason, evidence count, and validated citations containing source path, page,
 chunk ID, and retrieval score. API keys are read only from environment variables.
