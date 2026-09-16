@@ -121,3 +121,76 @@ This reports Recall@K, Hit@K, and mean reciprocal rank over the cases in
 upserts and removes stale chunk IDs, so unchanged chunks are not duplicated. The
 generated `data/vector_db` directory is local and Git-ignored; rebuild it from the
 tracked chunks after cloning the project.
+
+## Person 4: grounded RAG answers
+
+`src/rag.py` connects retrieval to an OpenAI-compatible chat endpoint. It labels
+retrieved passages as `[S1]`, `[S2]`, and so on, requires those labels in the
+answer, maps them back to real source paths/pages, and abstains when retrieval is
+weak or the model produces missing or invented citations.
+
+Configure the team's chosen compatible endpoint without committing secrets:
+
+```powershell
+$env:LLM_MODEL = "your-model-name"
+$env:LLM_API_KEY = "your-api-key"
+# Optional for a non-default compatible provider:
+$env:LLM_BASE_URL = "https://provider.example/v1"
+```
+
+Preview exactly what evidence would be sent without calling an LLM:
+
+```powershell
+python -m src.rag "Is the APEX note suitable for a Conservative client?" --show-prompt
+```
+
+Generate a grounded answer:
+
+```powershell
+python -m src.rag "Is the APEX note suitable for a Conservative client?"
+```
+
+The JSON response includes the answer, an `abstained` flag, a machine-readable
+reason, evidence count, and validated citations containing source path, page,
+chunk ID, and retrieval score. API keys are read only from environment variables.
+
+## Person 3: structured data and calculations
+
+`src/structured_data.py` reads the portfolio JSON, flattened holdings CSV, and
+transaction ledger directly. These records are not stored in Chroma. Exact values,
+percentages, dates, transaction statuses, and comparisons are calculated in Python
+and returned with source-file, record, and CSV-row references.
+
+Validate cross-file consistency:
+
+```powershell
+python -m src.structured_data validate
+```
+
+Example queries:
+
+```powershell
+python -m src.structured_data client "Robert Chua"
+python -m src.structured_data exposure "Robert Chua" "APEX"
+python -m src.structured_data transactions "James Sullivan" --status Pending
+python -m src.structured_data risk-profile "Conservative"
+python -m src.structured_data concentrations --threshold 20
+```
+
+At load time the module rejects duplicate identifiers, unknown client references,
+invalid dates/numbers, portfolio allocations that do not total 100%, holding values
+that do not reconcile to AUM, and differences between the JSON and flattened CSV.
+`StructuredResult.to_prompt_block()` converts a validated result into a labeled
+evidence block. `rag.py` now performs that hybrid integration automatically:
+named-client questions receive structured profile/holding/transaction evidence,
+while Chroma supplies relevant policy, factsheet, and operational passages. For
+suitability questions the structured product and risk profile also expand the
+semantic search query, improving retrieval without changing the user's question.
+
+```powershell
+python -m src.rag "Is Robert Chua suitable for APEX?" --show-prompt
+python -m src.rag "Is Robert Chua suitable for APEX?"
+```
+
+Use `--no-structured` to run document-only RAG. Structured citations include the
+underlying JSON record or CSV row in `source_references`.
