@@ -1,23 +1,67 @@
+import json
+import chromadb
 from sentence_transformers import SentenceTransformer
 
-# 1. Load a pretrained Sentence Transformer model
+# Load embedding model
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+#model = SentenceTransformer("mukaj/fin-mpnet-base")
 
-# The sentences to encode
-sentences = [
-    "The weather is lovely today.",
-    "It's so sunny outside!",
-    "He drove to the stadium.",
-]
+# Load your chunks
+with open("../data/processed/chunks.jsonl", "r") as f:
+    data = [json.loads(line) for line in f]
 
-# 2. Calculate embeddings by calling model.encode()
-embeddings = model.encode(sentences)
-print(embeddings.shape)
-# [3, 384]
+# Chroma
+client = chromadb.PersistentClient(path="./chroma_db")
 
-# 3. Calculate the embedding similarities
-similarities = model.similarity(embeddings, embeddings)
-print(similarities)
-# tensor([[1.0000, 0.6660, 0.1046],
-#         [0.6660, 1.0000, 0.1411],
-#         [0.1046, 0.1411, 1.0000]])
+try:
+    client.delete_collection("wealth_documents")
+    print("Deleted existing wealth_documents collection")
+except Exception:
+    pass
+
+collection = client.get_or_create_collection(
+    name="wealth_documents"
+)
+
+# Prepare data
+ids = []
+documents = []
+metadatas = []
+
+for chunk in data:
+    ids.append(chunk["id"])
+    documents.append(chunk["text"])
+
+    metadata = chunk["metadata"]
+
+    # Keep only useful retrieval/citation metadata
+    # metadatas.append({
+    #     "document_type": metadata["document_type"],
+    #     #"page": metadata["page"],
+    #     "source_filename": metadata["source_filename"],
+    #     #"title": metadata["title"],
+    #     "chunk_index": metadata["chunk_index"]
+    # })
+
+    metadatas.append({
+        "document_type": metadata.get("document_type", ""),
+        "source_filename": metadata.get("source_filename", ""),
+        "chunk_index": metadata.get("chunk_index", 0)
+    })
+
+# Generate embeddings
+
+embeddings = model.encode(
+    documents,
+    batch_size=32,
+    show_progress_bar=True,
+    normalize_embeddings=True
+).tolist()
+
+# Store in Chroma
+collection.add(
+    ids=ids,
+    documents=documents,
+    embeddings=embeddings,
+    metadatas=metadatas
+)
