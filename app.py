@@ -1,4 +1,4 @@
-from traceability import init_traceability_db
+# from traceability import init_traceability_db
 
 """Run with: python -m streamlit run app.py."""
 import json
