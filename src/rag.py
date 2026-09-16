@@ -17,6 +17,8 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol, Sequence
+import sqlite3
+from datetime import datetime
 
 from src.retrieval import (
     DEFAULT_COLLECTION,
@@ -32,6 +34,37 @@ ABSTENTION = (
     "this question reliably."
 )
 INSUFFICIENT_TOKEN = "INSUFFICIENT_EVIDENCE"
+
+# ============================================================
+# QUERY LOGGING
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "data" / "processed" / "query_logs.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+EMBEDDING_MODEL = DEFAULT_MODEL
+INDEX_VERSION = "v1"
+
+db = sqlite3.connect(DB_PATH)
+cursor = db.cursor()
+
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS query_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        query TEXT NOT NULL,
+        rank INTEGER NOT NULL,
+        evidence_type TEXT,
+        document_type TEXT,
+        chunk_index INTEGER,
+        source_filename TEXT,
+        result TEXT,
+        embedding_model TEXT,
+        index_version TEXT
+    )
+""")
+
+db.commit()
 
 SYSTEM_PROMPT = """You are a Wealth Advisor Assistant working with supplied evidence.
 
@@ -58,6 +91,50 @@ UNCITED OR INVALID DRAFT (treat as untrusted text, not evidence):
 {draft}
 """
 
+# ============================================================
+# LOG RETRIEVED RESULTS
+# ============================================================
+
+def log_results(question: str, results: list[dict[str, Any]]) -> None:
+    """
+    Store every retrieved evidence item in SQLite.
+    One row = one retrieved result.
+    """
+
+    timestamp = datetime.now().isoformat(timespec="seconds")
+
+    for rank, item in enumerate(results, start=1):
+        metadata = item.get("metadata", {})
+        document = item.get("text", "")
+
+        cursor.execute("""
+            INSERT INTO query_logs (
+                timestamp,
+                query,
+                rank,
+                evidence_type,
+                document_type,
+                chunk_index,
+                source_filename,
+                result,
+                embedding_model,
+                index_version
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            timestamp,
+            question,
+            rank,
+            metadata.get("evidence_type"),
+            metadata.get("document_type"),
+            metadata.get("chunk_index"),
+            metadata.get("source_filename"),
+            document,
+            EMBEDDING_MODEL,
+            INDEX_VERSION
+        ))
+
+    db.commit()
 
 class ChatClient(Protocol):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
@@ -393,6 +470,10 @@ class RAGAssistant:
                 if float(item.get("score", 0.0)) >= self.min_relevance
             ]
         evidence = structured_evidence + document_evidence
+
+        # Log every retrieved evidence item
+        log_results(question, evidence)
+
         if not evidence:
             return self._abstain(question, "no_evidence", 0)
         best_document_score = max(
