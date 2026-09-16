@@ -33,7 +33,6 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.markdown('#### Research settings')
-    preview = st.toggle('Preview evidence only', value=not ready)
     top_k = st.slider('Document passages to retrieve', 1, 10, 5)
     selected_types = st.multiselect('Document types', types, default=types)
     st.caption('Filters apply to documents. Named-client questions also include structured portfolio evidence.')
@@ -50,7 +49,7 @@ scoped = [c for c in chunks if c['metadata'].get('document_type', 'document') in
 left, middle, right = st.columns(3)
 left.metric('Documents in scope', len({c['metadata'].get('source_path') for c in scoped}))
 middle.metric('Prepared passages', len(scoped))
-right.metric('Mode', 'Evidence preview' if preview else 'Hybrid RAG')
+right.metric('Mode', 'Hybrid RAG')
 st.caption('Passage counts describe the ingested library. Rebuild the Chroma index after changing source documents.')
 
 def render_message(message, index):
@@ -64,6 +63,13 @@ def render_message(message, index):
         if message['role'] != 'assistant':
             return
         st.caption(f"{message.get('mode', 'Assistant')} · {message.get('elapsed', 0):.1f}s · {message.get('evidence_count', 0)} evidence blocks")
+        if message.get('structured_backend'):
+            st.caption('Structured source: ' + message['structured_backend'])
+        if message.get('structured_fallback'):
+            st.info('SQLite retrieval was unavailable or returned no rows; used the existing JSON/CSV queries.')
+        if message.get('grounding_diagnostics'):
+            with st.expander('Answer diagnostics (not factual verification)'):
+                st.json(message['grounding_diagnostics'])
         if message.get('reason'):
             with st.expander('Why this answer was withheld'):
                 st.write(message['reason'])
@@ -82,7 +88,7 @@ def render_message(message, index):
         if message.get('mode') != 'Error':
             message['feedback'] = st.radio('Was this useful?', ['Not rated', 'Helpful', 'Needs improvement'], horizontal=True, key=f'feedback_{index}')
 
-disabled = not chunks or not selected_types or (not preview and not ready)
+disabled = not chunks or not selected_types or not ready
 if not chunks:
     st.warning('Run ingestion and indexing to prepare the document library. See the README.')
 prompt = None
@@ -101,7 +107,7 @@ if prompt and prompt.strip():
     started = time.perf_counter()
     with st.spinner('Retrieving evidence and preparing your response…'):
         try:
-            result = respond(prompt, top_k=top_k, document_types=selected_types, preview=preview)
+            result = respond(prompt, top_k=top_k, document_types=selected_types, preview=False)
             message = {**result, 'role': 'assistant', 'content': result['answer']}
         except Exception as exc:
             message = {'role': 'assistant', 'content': f'Request failed: {exc}', 'mode': 'Error'}

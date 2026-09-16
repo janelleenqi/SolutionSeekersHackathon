@@ -450,12 +450,8 @@ class SqlStructuredRouter:
             f"QUESTION:\n{question.strip()}",
         )
         sql, parameters = self._parse_plan(raw_plan)
-        connection = sqlite3.connect(f"file:{self.database_path}?mode=ro", uri=True)
-        connection.row_factory = sqlite3.Row
-        try:
-            rows = [dict(row) for row in connection.execute(sql, parameters).fetchall()]
-        finally:
-            connection.close()
+        from src.structural_retrieval import retrieve_structured_data
+        rows = retrieve_structured_data(sql, parameters, database_path=self.database_path, as_dict=True)
         if not rows:
             return []
         return [{
@@ -468,7 +464,7 @@ class SqlStructuredRouter:
             "metadata": {
                 "evidence_type": "structured",
                 "source_path": str(self.database_path),
-                "source_references": [{"sql": sql, "row_count": len(rows)}],
+                "source_references": [{"sql": sql, "parameters": parameters, "row_count": len(rows)}],
             },
         }]
 

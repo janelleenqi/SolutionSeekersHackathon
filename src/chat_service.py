@@ -1,9 +1,11 @@
 """Adapter connecting Streamlit to the CLI's hybrid RAG pipeline."""
 from functools import lru_cache
 from pathlib import Path
+import sqlite3
 from src import rag
 from src.retrieval import load_chunks, VectorRetriever, SentenceTransformerEncoder
 from src.structured_data import StructuredDataStore
+from src.hallucination import check_hallucination
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +29,38 @@ class CapturedRetriever:
         self.evidence = self.delegate.search(query, top_k=top_k, filters=filters)
         return self.evidence
 
-def respond(question, top_k=5, document_types=None, preview=False):
+class FallbackSqlRouter:
+    """Request-local cache keeps prompt evidence and displayed citations identical."""
+    def __init__(self, sql_router, original):
+        self.sql_router = sql_router
+        self.original = original
+        self.cache = {}
+        self.used_fallback = False
+
+    def search(self, question):
+        if question not in self.cache:
+            try:
+                result = self.sql_router.search(question)
+            except (ValueError, OSError, RuntimeError, sqlite3.DatabaseError):
+                result = []
+            if not result:
+                self.used_fallback = True
+                result = self.original.search(question)
+            self.cache[question] = result
+        return self.cache[question]
+
+    def expand_retrieval_query(self, question):
+        return self.original.expand_retrieval_query(question)
+
+
+def respond(question, top_k=5, document_types=None, preview=False, structured_backend='files'):
+    if structured_backend not in {'files', 'sqlite'}:
+        raise ValueError('structured_backend must be files or sqlite')
     retriever, router = resources()
+    # Preview remains entirely local: SQL planning requires an LLM call.
+    if structured_backend == 'sqlite' and not preview:
+        router = FallbackSqlRouter(rag.SqlStructuredRouter(
+            rag.OpenAICompatibleChatClient.from_environment(), ROOT / 'data/wealth.db'), router)
     captured = CapturedRetriever(retriever)
     filters = None
     if document_types is not None:
@@ -51,4 +83,9 @@ def respond(question, top_k=5, document_types=None, preview=False):
     result.update(sources=[{**item, 'label': f'S{index}', 'cited': f'S{index}' in cited}
                            for index, item in enumerate(evidence, 1)],
                   evidence_count=len(evidence), mode='Evidence preview' if preview else 'Hybrid RAG')
+    result['structured_backend'] = ('sqlite' if isinstance(router, FallbackSqlRouter)
+                                    and not router.used_fallback else 'files')
+    result['structured_fallback'] = isinstance(router, FallbackSqlRouter) and router.used_fallback
+    if not preview:
+        result['grounding_diagnostics'] = check_hallucination(result['answer'], result['sources'])
     return result
